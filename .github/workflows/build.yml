@@ -43,6 +43,8 @@ jobs:
             ${{ runner.os }}-gradle-
 
       - name: Build with Gradle
+        env:
+          SHORT_BRAND: archive
         run: ./gradlew :launcher:build --no-daemon -x test
 
       - name: Run tests
@@ -54,7 +56,7 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LegacyLauncer-archive-JAR
+          name: LegacyLauncer-Archive-JAR
           path: |
             launcher/build/libs/*.jar
           retention-days: 7
@@ -88,7 +90,7 @@ jobs:
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: LegacyLauncher-JAR
+          name: LegacyLauncer-Archive-JAR
           path: launcher/build/libs/
 
       - name: Build packages (Linux/macOS)
@@ -104,7 +106,7 @@ jobs:
       - name: Upload package artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: LegacyLauncher-Packages-${{ runner.os }}
+          name: LegacyLauncer-Archive-Packages-${{ runner.os }}
           path: |
             packages/*/build/distributions/*
             packages/*/build/libs/*

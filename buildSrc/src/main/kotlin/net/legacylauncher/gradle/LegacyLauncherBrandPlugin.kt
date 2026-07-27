@@ -17,6 +17,7 @@ class LegacyLauncherBrandPlugin : Plugin<Project> {
                 "mcl" -> "for Mc-launcher.com"
                 "aur" -> "AUR"
                 "appt" -> "для AppStorrent"
+                "archive" -> "Legacy Launcer Archive"
                 else -> brand
             }
         })

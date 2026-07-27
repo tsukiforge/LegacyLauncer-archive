@@ -58,7 +58,7 @@ public class UpdateChecker {
      * Results are available via {@link #isUpdateAvailable()} and {@link #getLatestUpdate()}.
      */
     public CompletableFuture<Optional<LauncherUpdate>> checkForUpdates() {
-        return AsyncThread.completableTimeout(15, TimeUnit.SECONDS, () -> {
+        CompletableFuture<Optional<LauncherUpdate>> future = AsyncThread.completableTimeout(15, TimeUnit.SECONDS, () -> {
             try {
                 if (customUpdateUrl != null && !customUpdateUrl.isEmpty()) {
                     return checkCustomUrl();
@@ -68,7 +68,9 @@ public class UpdateChecker {
                 log.warn("Failed to check for launcher updates", e);
                 return Optional.empty();
             }
-        }).whenComplete((result, error) -> {
+        });
+
+        future.whenComplete((result, error) -> {
             checkComplete = true;
             if (error != null) {
                 log.warn("Update check failed: {}", error.toString());
@@ -80,6 +82,8 @@ public class UpdateChecker {
                 log.info("New launcher update available: {} ({})", update.version, update.tagName);
             });
         });
+
+        return future;
     }
 
     private Optional<LauncherUpdate> checkGitHubReleases() {

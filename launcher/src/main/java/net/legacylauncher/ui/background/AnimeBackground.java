@@ -10,6 +10,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ComponentEvent;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -139,7 +140,7 @@ public class AnimeBackground extends JComponent implements ISwingBackground {
 
         try (InputStream in = conn.getInputStream()) {
             // Save to cache
-            byte[] imageData = in.readAllBytes();
+            byte[] imageData = readAllBytes(in);
 
             if (imageData.length > MAX_FILE_SIZE) {
                 log.warn("Downloaded image too large: {} bytes", imageData.length);
@@ -229,5 +230,16 @@ public class AnimeBackground extends JComponent implements ISwingBackground {
         scaledImage = null;
         currentUrl = null;
         repaint();
+    }
+
+    /** Java 8-compatible replacement for InputStream.readAllBytes() */
+    private static byte[] readAllBytes(InputStream in) throws IOException {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        byte[] data = new byte[8192];
+        int n;
+        while ((n = in.read(data, 0, data.length)) != -1) {
+            buffer.write(data, 0, n);
+        }
+        return buffer.toByteArray();
     }
 }

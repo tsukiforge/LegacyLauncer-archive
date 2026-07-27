@@ -330,6 +330,88 @@ public class LegacyLauncherFrame extends JFrame {
         FlatLaf.updateLafInWindows();
     }
 
+    // ===== Window Translucency for Transparent Desktop Mode =====
+
+    /**
+     * Makes the window background transparent so the desktop shows through.
+     * Uses per-pixel translucency (Java 11+ modern approach).
+     * Called when background mode is set to "transparent".
+     */
+    public void enableTransparency() {
+        try {
+            GraphicsDevice gd = getGraphicsConfiguration().getDevice();
+            if (gd.isWindowTranslucencySupported(
+                    GraphicsDevice.WindowTranslucency.PERPIXEL_TRANSPARENT)) {
+                log.debug("Enabling per-pixel window translucency for transparent background");
+                // Set the window background to fully transparent
+                setBackground(new Color(0, 0, 0, 0));
+
+                // Ensure all main content panels have explicit opaque backgrounds
+                if (mp != null) {
+                    mp.setOpaque(false);
+                    if (mp.defaultScene != null) {
+                        mp.defaultScene.setOpaque(false);
+                    }
+                }
+
+                // Force repaint to apply changes immediately
+                revalidate();
+                repaint();
+            } else {
+                log.warn("Per-pixel translucency not supported on this graphics device");
+                log.warn("Transparent background will show as black/dark");
+                // Fallback: use uniform translucency (Java 7+)
+                if (getType() != Type.UTILITY) {
+                    setOpacity(0.85f);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Could not enable window translucency", e);
+        }
+    }
+
+    /**
+     * Restores the window to fully opaque state.
+     * Called when switching away from transparent background mode.
+     */
+    public void disableTransparency() {
+        try {
+            log.debug("Restoring window opacity");
+            // Restore normal opaque background using current theme
+            Color bgColor = UIManager.getColor("Panel.background");
+            if (bgColor == null) {
+                bgColor = Theme.getTheme().getBackground();
+            }
+            setBackground(bgColor);
+
+            // Restore opacity on child components
+            if (mp != null) {
+                mp.setOpaque(true);
+                if (mp.defaultScene != null) {
+                    mp.defaultScene.setOpaque(true);
+                }
+            }
+
+            revalidate();
+            repaint();
+        } catch (Exception e) {
+            log.warn("Could not restore window opacity", e);
+        }
+    }
+
+    /**
+     * Checks if per-pixel translucency is supported on this system.
+     */
+    public boolean isTransparencySupported() {
+        try {
+            GraphicsDevice gd = getGraphicsConfiguration().getDevice();
+            return gd.isWindowTranslucencySupported(
+                    GraphicsDevice.WindowTranslucency.PERPIXEL_TRANSPARENT);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private static int getExtendedStateFor(int state) {
         switch (state) {
             case 0:

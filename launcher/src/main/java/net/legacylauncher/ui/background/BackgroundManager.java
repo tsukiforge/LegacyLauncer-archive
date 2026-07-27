@@ -2,6 +2,7 @@ package net.legacylauncher.ui.background;
 
 import lombok.extern.slf4j.Slf4j;
 import net.legacylauncher.LegacyLauncher;
+import net.legacylauncher.configuration.Configuration;
 import net.legacylauncher.ui.MainPane;
 import net.legacylauncher.ui.background.fx.FxAudioPlayer;
 import net.legacylauncher.ui.background.fx.MediaFxBackground;
@@ -23,8 +24,11 @@ public final class BackgroundManager extends ExtendedLayeredPane {
     private final Lazy<ImageBackground> imageBackground;
     public final Lazy<OldAnimatedBackground> oldBackground;
     private final FXWrapper<MediaFxBackground> mediaFxBackground;
+    private final Lazy<AnimeBackground> animeBackground;
+    private final Lazy<TransparentBackground> transparentBackground;
 
     private IBackground background;
+    private String previousMode;
 
     public BackgroundManager(MainPane pane) {
         super(pane);
@@ -36,6 +40,8 @@ public final class BackgroundManager extends ExtendedLayeredPane {
 
         imageBackground = Lazy.of(ImageBackground::new);
         oldBackground = Lazy.of(OldAnimatedBackground::new);
+        animeBackground = Lazy.of(AnimeBackground::new);
+        transparentBackground = Lazy.of(TransparentBackground::new);
         FXWrapper<MediaFxBackground> _mediaFxBackground = null;
         try {
             if (JavaVersion.getCurrent().getMajor() >= 11) {
@@ -86,16 +92,48 @@ public final class BackgroundManager extends ExtendedLayeredPane {
     }
 
     public void loadBackground() {
-        String path = LegacyLauncher.getInstance().getSettings().get("gui.background");
-        if (path != null && mediaFxBackground != null && (path.endsWith(".mp4") || path.endsWith(".flv"))) {
-            worker.setBackground(mediaFxBackground, path);
-        } else {
-            if (nostalgic) {
-                OldAnimatedBackground nostalgicBackground = oldBackground.get();
-                nostalgicBackground.getAudioPlayer().value().ifPresent(FxAudioPlayer::play);
-                worker.setBackground(nostalgicBackground, path);
-            } else {
-                worker.setBackground(imageBackground.get(), path);
+        Configuration settings = LegacyLauncher.getInstance().getSettings();
+        String previousMode = this.previousMode;
+        String mode = settings.get("gui.background.mode");
+        if (mode == null) mode = "anime";
+        this.previousMode = mode;
+
+        // Disable transparency when switching away from transparent mode
+        if (previousMode != null && "transparent".equals(previousMode) && !"transparent".equals(mode)) {
+            SwingUtilities.invokeLater(() ->
+                LegacyLauncher.getInstance().getFrame().disableTransparency()
+            );
+        }
+
+        switch (mode) {
+            case "video": {
+                String path = settings.get("gui.background");
+                if (path != null && mediaFxBackground != null && (path.endsWith(".mp4") || path.endsWith(".flv"))) {
+                    worker.setBackground(mediaFxBackground, path);
+                } else if (nostalgic) {
+                    OldAnimatedBackground nostalgicBackground = oldBackground.get();
+                    nostalgicBackground.getAudioPlayer().value().ifPresent(FxAudioPlayer::play);
+                    worker.setBackground(nostalgicBackground, path);
+                } else {
+                    worker.setBackground(imageBackground.get(), path);
+                }
+                break;
+            }
+            case "transparent": {
+                worker.setBackground(transparentBackground.get(), null);
+                // Enable per-pixel translucency on the frame so desktop shows through
+                SwingUtilities.invokeLater(() ->
+                    LegacyLauncher.getInstance().getFrame().enableTransparency()
+                );
+                break;
+            }
+            default: { // anime mode
+                String animeUrl = settings.get("gui.background.anime.url");
+                if (animeUrl == null || animeUrl.isEmpty()) {
+                    animeUrl = "https://images.unsplash.com/photo-1547954575-855750c57bd3?auto=format&fit=crop&w=1920&q=80";
+                }
+                worker.setBackground(animeBackground.get(), animeUrl);
+                break;
             }
         }
     }

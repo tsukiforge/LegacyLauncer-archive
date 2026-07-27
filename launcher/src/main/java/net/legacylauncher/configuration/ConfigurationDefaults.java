@@ -100,6 +100,33 @@ public final class ConfigurationDefaults {
         d.put("experiments.enabled", "none");
 
         d.put("minecraft.deletePatchy", true);
+
+        // Anime Theme & Background settings
+        d.put("gui.background.mode", "anime"); // anime, video, transparent
+        d.put("gui.background.anime.url", "https://images.unsplash.com/photo-1567095761054-7a02e69e5c43?auto=format&fit=crop&w=1920&q=80");
+
+        // Auto-Optimize Low-End PC settings
+        d.put("optimize.enabled", false);
+        d.put("optimize.close.on.start", false);
+        d.put("optimize.jvm.args", "auto");
+        d.put("optimize.mods.sodium", true);
+        d.put("optimize.mods.lithium", true);
+        d.put("optimize.mods.ferritecore", true);
+        d.put("optimize.mods.optifine", false);
+        d.put("optimize.mods.dynamicfps", true);
+        d.put("optimize.mods.starlight", true);
+        d.put("optimize.mods.krypton", true);
+        d.put("optimize.mods.entityculling", true);
+        d.put("optimize.mods.iris", true);
+        d.put("optimize.mods.immediatelyfast", true);
+        d.put("optimize.mods.modernfix", true);
+        d.put("optimize.mods.memoryleakfix", true);
+        d.put("optimize.mods.lazydfu", true);
+        d.put("optimize.mods.noisium", true);
+        d.put("optimize.mods.smoothboot", true);
+        d.put("optimize.mods.c2me", false);
+        d.put("optimize.mods.alternatecurrent", true);
+        d.put("optimize.mods.vmp", false);
     }
 
     public static int getVersion() {

@@ -1241,6 +1241,24 @@ public class MinecraftLauncher implements JavaProcessListener {
         // add modpack-related arguments
         programArgs.addAll(processModpack());
 
+        // Auto-Optimize Low-End PC: inject optimized JVM args if enabled
+        OptimizationService optimizationService = new OptimizationService(LegacyLauncher.getInstance());
+        if (optimizationService.isEnabled()) {
+            String optArgs = optimizationService.getOptimizedJvmArgs();
+            if (optArgs != null && !optArgs.isEmpty()) {
+                String[] splitArgs = optArgs.split(" ");
+                for (String optArg : splitArgs) {
+                    if (!optArg.trim().isEmpty()) {
+                        jvmArgs.add(optArg.trim());
+                    }
+                }
+                log.info("Auto-Optimize: Injected optimized JVM arguments");
+            }
+            // Trigger async mod download
+            String mcVersion = version != null ? version.getID() : "unknown";
+            AsyncThread.execute(() -> optimizationService.downloadOptimizationMods(mcVersion));
+        }
+
         for (String arg : jvmArgs) {
             launcher.addCommand(arg);
         }

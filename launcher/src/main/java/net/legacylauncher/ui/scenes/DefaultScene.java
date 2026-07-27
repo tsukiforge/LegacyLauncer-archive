@@ -7,14 +7,19 @@ import net.legacylauncher.ui.login.LoginForm;
 import net.legacylauncher.ui.notice.MainNoticePanel;
 import net.legacylauncher.ui.notice.Notice;
 import net.legacylauncher.ui.notice.NoticeSidePanel;
+import net.legacylauncher.managers.UpdateChecker;
+import net.legacylauncher.ui.components.BellIconButton;
+import net.legacylauncher.ui.loc.Localizable;
 import net.legacylauncher.ui.notification.NotificationPanel;
 import net.legacylauncher.ui.settings.SettingsPanel;
 import net.legacylauncher.ui.swing.DelayedComponent;
 import net.legacylauncher.ui.swing.DelayedComponentLoader;
+import net.legacylauncher.ui.swing.GlassPanel;
 import net.legacylauncher.ui.swing.extended.ExtendedPanel;
 import net.legacylauncher.util.Direction;
 import net.legacylauncher.util.SwingUtil;
 
+import javax.swing.*;
 import java.awt.*;
 
 public class DefaultScene extends PseudoScene {
@@ -30,8 +35,22 @@ public class DefaultScene extends PseudoScene {
     public final DelayedComponent<MainNoticePanel> noticePanel;
     public final NotificationPanel notificationPanel;
 
+    // Bell icon for update notifications
+    public final BellIconButton bellIconButton;
+
+    // Glassmorphism overlay for anime theme
+    private final GlassPanel glassOverlay;
+
     public DefaultScene(MainPane main) {
         super(main);
+
+        // Glassmorphism overlay for anime theme background
+        glassOverlay = new GlassPanel(0.40f, new Color(10, 8, 30, 180));
+        glassOverlay.setArc(16);
+        glassOverlay.setShowBorder(true);
+        glassOverlay.setVisible(true);
+        add(glassOverlay);
+
         settingsForm = new DelayedComponent<>(new DelayedComponentLoader<SettingsPanel>() {
             @Override
             public SettingsPanel loadComponent() {
@@ -78,6 +97,11 @@ public class DefaultScene extends PseudoScene {
         });
         this.notificationPanel = new NotificationPanel();
         add(notificationPanel);
+
+        // Bell icon button for update notifications (top-right corner)
+        this.bellIconButton = new BellIconButton();
+        bellIconButton.addActionListener(e -> onBellClicked());
+        add(bellIconButton);
 
         updateDirection();
     }
@@ -230,6 +254,16 @@ public class DefaultScene extends PseudoScene {
             sidePanelComp.setLocation(sp_x, sp_y);
         }
         loginForm.setLocation(lf_x, lf_y);
+
+        // Position glass overlay behind login form
+        int glassPadding = SwingUtil.magnify(12);
+        glassOverlay.setBounds(
+                lf_x - glassPadding,
+                lf_y - glassPadding,
+                lf_w + glassPadding * 2,
+                lf_h + glassPadding * 2
+        );
+
         if (noticePanel.isLoaded()) {
             noticePanel.get().onResize();
         }
@@ -245,6 +279,16 @@ public class DefaultScene extends PseudoScene {
                 sn_y = 0;
         }
         notificationPanel.setBounds(0, sn_y, getWidth(), notificationPanel.height);
+
+        // Position bell icon at top-right corner
+        int bellSize = bellIconButton.getPreferredSize().width;
+        int bellMargin = SwingUtil.magnify(12);
+        bellIconButton.setBounds(
+                w - bellSize - bellMargin,
+                bellMargin,
+                bellSize,
+                bellSize
+        );
     }
 
     public DefaultScene.SidePanel getSidePanel() {
@@ -321,6 +365,64 @@ public class DefaultScene extends PseudoScene {
 
     public Direction getLoginFormDirection() {
         return lfDirection;
+    }
+
+    /**
+     * Called when the bell icon button is clicked.
+     * Shows update information if available, otherwise triggers a check.
+     */
+    private void onBellClicked() {
+        UpdateChecker checker = getMainPane().getRootFrame().getLauncher().getUpdateChecker();
+        if (checker == null) {
+            return;
+        }
+        if (checker.isUpdateAvailable() && checker.getLatestUpdate() != null) {
+            UpdateChecker.LauncherUpdate update = checker.getLatestUpdate();
+
+            String changelog = update.getChangelog();
+            if (changelog != null && changelog.length() > 200) {
+                changelog = changelog.substring(0, 200) + "...";
+            }
+
+            int result = JOptionPane.showConfirmDialog(
+                    this,
+                    Localizable.get("bell.update.dialog.body",
+                            update.getVersion().toString(),
+                            changelog != null ? changelog : ""),
+                    Localizable.get("bell.update.dialog.title"),
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.INFORMATION_MESSAGE
+            );
+            if (result == JOptionPane.YES_OPTION) {
+                update.openReleasePage();
+            }
+        } else {
+            bellIconButton.setHasUpdate(false);
+            bellIconButton.setEnabled(false);
+            checker.checkForUpdates().thenAcceptAsync(opt ->
+                    SwingUtilities.invokeLater(() -> {
+                        bellIconButton.setEnabled(true);
+                        if (opt.isPresent()) {
+                            bellIconButton.setHasUpdate(true);
+                            bellIconButton.setUpdateCount(1);
+                        } else {
+                            JOptionPane.showMessageDialog(
+                                    this,
+                                    Localizable.get("bell.update.none"),
+                                    Localizable.get("bell.update.title"),
+                                    JOptionPane.INFORMATION_MESSAGE
+                            );
+                        }
+                    })
+            , SwingUtil.executor());
+        }
+    }
+
+    /**
+     * Gets the bell icon button so external code can wire update checks.
+     */
+    public BellIconButton getBellIconButton() {
+        return bellIconButton;
     }
 
     public void updateDirection() {

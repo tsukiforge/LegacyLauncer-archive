@@ -50,10 +50,15 @@ public class MinecraftUIListener implements MinecraftListener, CrashManagerListe
     }
 
     public void onMinecraftLaunch() {
+        // Standard action: hide/exit based on existing setting
         if (!t.getSettings().getActionOnLaunch().equals(Configuration.ActionOnLaunch.NOTHING)) {
             SwingUtil.later(() -> t.getFrame().setVisible(false));
         }
 
+        // Auto-Optimize: close launcher on game start if enabled
+        if (t.getSettings().getBoolean("optimize.close.on.start")) {
+            SwingUtil.later(() -> t.getFrame().setVisible(false));
+        }
     }
 
     public void onMinecraftClose() {

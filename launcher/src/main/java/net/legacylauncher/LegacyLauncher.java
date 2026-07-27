@@ -118,6 +118,9 @@ public final class LegacyLauncher {
     @Getter
     private MinecraftLauncher minecraftLauncher;
 
+    @Getter
+    private UpdateChecker updateChecker;
+
     private LegacyLauncher(BootstrapIPC bootstrapIPC) throws Exception {
         Objects.requireNonNull(bootstrapIPC, "ipc");
         checkNotRunning();
@@ -211,6 +214,9 @@ public final class LegacyLauncher {
 
             bootstrapIPC.onBootProgress("Post-init UI", 0.8);
             initAndRefreshUI();
+
+            // Initialize launcher update checker
+            initUpdateChecker();
         });
 
         ready = true;
@@ -865,5 +871,35 @@ public final class LegacyLauncher {
         if (actualNotes != null) {
             new UpdateFrame(U.getMinorVersion(getVersion()), actualNotes.body).showAndWait();
         }
+    }
+
+    /**
+     * Initializes the launcher update checker and starts the periodic update check.
+     * Results are displayed via the bell icon in the default scene.
+     */
+    private void initUpdateChecker() {
+        String updateUrl = bootConfig.getNotifications().containsKey("update_url")
+                ? bootConfig.getNotifications().get("update_url").getUrl() : null;
+        updateChecker = new UpdateChecker(updateUrl);
+
+        // Trigger update check asynchronously after a short delay
+        executeWhenReady(() -> {
+            updateChecker.checkForUpdates().thenAcceptAsync(opt -> {
+                SwingUtil.later(() -> {
+                    if (frame != null && frame.mp != null && frame.mp.defaultScene != null) {
+                        if (opt.isPresent()) {
+                            frame.mp.defaultScene.bellIconButton.setHasUpdate(true);
+                            frame.mp.defaultScene.bellIconButton.setUpdateCount(1);
+                            frame.mp.defaultScene.bellIconButton.setToolTipText(
+                                    Localizable.get("bell.update.available", opt.get().getVersion().toString())
+                            );
+                        }
+                    }
+                });
+            }, SwingUtil.executor()).exceptionally(t -> {
+                log.warn("Initial update check failed", t);
+                return null;
+            });
+        });
     }
 }

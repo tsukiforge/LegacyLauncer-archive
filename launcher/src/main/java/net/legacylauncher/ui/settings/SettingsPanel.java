@@ -8,6 +8,7 @@ import net.legacylauncher.managers.VersionLists;
 import net.legacylauncher.minecraft.launcher.hooks.GameModeHookLoader;
 import net.legacylauncher.stats.Stats;
 import net.legacylauncher.ui.FlatLaf;
+import net.legacylauncher.ui.LegacyLauncherFrame;
 import net.legacylauncher.ui.alert.Alert;
 import net.legacylauncher.ui.block.Blocker;
 import net.legacylauncher.ui.converter.ActionOnLaunchConverter;
@@ -347,6 +348,204 @@ public class SettingsPanel extends TabbedEditorPanel implements LoginForm.LoginP
         });
         tlauncherTab.add(new EditorPair("settings.lang.label", locale));
         add(tlauncherTab);
+
+        // === Anime Appearance Tab ===
+        EditorPanelTab appearanceTab = new EditorPanelTab("settings.tab.appearance");
+        EditorFieldHandler backgroundMode = new EditorFieldHandler("gui.background.mode",
+                new EditorComboBox<>(
+                        new LocalizableStringConverter<String>("settings.background.mode") {
+                            @Override
+                            protected String toPath(String from) { return from; }
+                            @Override
+                            public String fromString(String from) { return from; }
+                            @Override
+                            public String toValue(String from) { return from; }
+                            @Override
+                            public Class<String> getObjectClass() { return String.class; }
+                        },
+                        new String[]{"anime", "video", "transparent"}
+                )
+        );
+        backgroundMode.addListener(new EditorFieldChangeListener() {
+            @Override
+            protected void onChange(String oldValue, String newValue) {
+                if (SettingsPanel.this.ready) {
+                    tlauncher.getFrame().mp.background.loadBackground();
+                }
+            }
+        });
+        appearanceTab.add(new EditorPair("settings.background.mode.label", backgroundMode));
+
+        EditorFieldHandler animeUrl = new EditorFieldHandler("gui.background.anime.url",
+                new EditorTextField("settings.background.anime.url.prompt", true)
+        );
+        animeUrl.addListener(new EditorFieldChangeListener() {
+            @Override
+            protected void onChange(String oldValue, String newValue) {
+                if (SettingsPanel.this.ready && newValue != null && !newValue.isEmpty()) {
+                    tlauncher.getFrame().mp.background.loadBackground();
+                }
+            }
+        });
+        appearanceTab.add(new EditorPair("settings.background.anime.url.label", animeUrl));
+        appearanceTab.nextPane();
+
+        // Preview note
+        LocalizableLabel previewNote = new LocalizableLabel("settings.background.anime.note");
+        previewNote.setFont(previewNote.getFont().deriveFont(Font.ITALIC, LegacyLauncherFrame.getFontSize() * 0.85f));
+        appearanceTab.add(previewNote);
+        appearanceTab.nextPane();
+
+        add(appearanceTab);
+
+        // === Auto-Optimize Tab ===
+        EditorPanelTab optimizeTab = new EditorPanelTab("settings.tab.optimize");
+
+        EditorFieldHandler optimizeEnabled = new EditorFieldHandler("optimize.enabled",
+                new EditorCheckBox("settings.optimize.enable")
+        );
+        optimizeEnabled.addListener(new EditorFieldChangeListener() {
+            @Override
+            protected void onChange(String oldValue, String newValue) {
+                if (SettingsPanel.this.ready) {
+                    boolean enabled = Boolean.parseBoolean(newValue);
+                    Alert.showLocMessage("settings.optimize.enable.alert." + enabled);
+                }
+            }
+        });
+        optimizeTab.add(new EditorPair("settings.optimize.enable.label", optimizeEnabled));
+        optimizeTab.nextPane();
+
+        // Close on game start
+        EditorFieldHandler closeOnStart = new EditorFieldHandler("optimize.close.on.start",
+                new EditorCheckBox("settings.optimize.close.start")
+        );
+        optimizeTab.add(new EditorPair("settings.optimize.close.start.label", closeOnStart));
+        optimizeTab.nextPane();
+
+        // Mod selection header
+        LocalizableLabel modsHeader = new LocalizableLabel("settings.optimize.mods.label");
+        modsHeader.setFont(modsHeader.getFont().deriveFont(Font.BOLD));
+        optimizeTab.add(modsHeader);
+        optimizeTab.nextPane();
+
+        // Sodium
+        EditorFieldHandler modSodium = new EditorFieldHandler("optimize.mods.sodium",
+                new EditorCheckBox("settings.optimize.mods.sodium")
+        );
+        optimizeTab.add(new EditorPair("settings.optimize.mods.sodium.label", modSodium));
+
+        // Lithium
+        EditorFieldHandler modLithium = new EditorFieldHandler("optimize.mods.lithium",
+                new EditorCheckBox("settings.optimize.mods.lithium")
+        );
+        optimizeTab.add(new EditorPair("settings.optimize.mods.lithium.label", modLithium));
+
+        // FerriteCore
+        EditorFieldHandler modFerriteCore = new EditorFieldHandler("optimize.mods.ferritecore",
+                new EditorCheckBox("settings.optimize.mods.ferritecore")
+        );
+        optimizeTab.add(new EditorPair("settings.optimize.mods.ferritecore.label", modFerriteCore));
+
+        // OptiFine
+        EditorFieldHandler modOptifine = new EditorFieldHandler("optimize.mods.optifine",
+                new EditorCheckBox("settings.optimize.mods.optifine")
+        );
+        optimizeTab.add(new EditorPair("settings.optimize.mods.optifine.label", modOptifine));
+
+        // Dynamic FPS
+        EditorFieldHandler modDynamicFps = new EditorFieldHandler("optimize.mods.dynamicfps",
+                new EditorCheckBox("settings.optimize.mods.dynamicfps")
+        );
+        optimizeTab.add(new EditorPair("settings.optimize.mods.dynamicfps.label", modDynamicFps));
+
+        // Starlight
+        EditorFieldHandler modStarlight = new EditorFieldHandler("optimize.mods.starlight",
+                new EditorCheckBox("settings.optimize.mods.starlight")
+        );
+        optimizeTab.add(new EditorPair("settings.optimize.mods.starlight.label", modStarlight));
+
+        // Krypton
+        EditorFieldHandler modKrypton = new EditorFieldHandler("optimize.mods.krypton",
+                new EditorCheckBox("settings.optimize.mods.krypton")
+        );
+        optimizeTab.add(new EditorPair("settings.optimize.mods.krypton.label", modKrypton));
+
+        // EntityCulling
+        EditorFieldHandler modEntityCulling = new EditorFieldHandler("optimize.mods.entityculling",
+                new EditorCheckBox("settings.optimize.mods.entityculling")
+        );
+        optimizeTab.add(new EditorPair("settings.optimize.mods.entityculling.label", modEntityCulling));
+
+        // Iris
+        EditorFieldHandler modIris = new EditorFieldHandler("optimize.mods.iris",
+                new EditorCheckBox("settings.optimize.mods.iris")
+        );
+        optimizeTab.add(new EditorPair("settings.optimize.mods.iris.label", modIris));
+
+        // ImmediatelyFast
+        EditorFieldHandler modImmediatelyFast = new EditorFieldHandler("optimize.mods.immediatelyfast",
+                new EditorCheckBox("settings.optimize.mods.immediatelyfast")
+        );
+        optimizeTab.add(new EditorPair("settings.optimize.mods.immediatelyfast.label", modImmediatelyFast));
+
+        // ModernFix
+        EditorFieldHandler modModernFix = new EditorFieldHandler("optimize.mods.modernfix",
+                new EditorCheckBox("settings.optimize.mods.modernfix")
+        );
+        optimizeTab.add(new EditorPair("settings.optimize.mods.modernfix.label", modModernFix));
+
+        // MemoryLeakFix
+        EditorFieldHandler modMemoryLeakFix = new EditorFieldHandler("optimize.mods.memoryleakfix",
+                new EditorCheckBox("settings.optimize.mods.memoryleakfix")
+        );
+        optimizeTab.add(new EditorPair("settings.optimize.mods.memoryleakfix.label", modMemoryLeakFix));
+
+        // LazyDFU
+        EditorFieldHandler modLazyDFU = new EditorFieldHandler("optimize.mods.lazydfu",
+                new EditorCheckBox("settings.optimize.mods.lazydfu")
+        );
+        optimizeTab.add(new EditorPair("settings.optimize.mods.lazydfu.label", modLazyDFU));
+
+        // Noisium
+        EditorFieldHandler modNoisium = new EditorFieldHandler("optimize.mods.noisium",
+                new EditorCheckBox("settings.optimize.mods.noisium")
+        );
+        optimizeTab.add(new EditorPair("settings.optimize.mods.noisium.label", modNoisium));
+
+        // Smooth Boot
+        EditorFieldHandler modSmoothBoot = new EditorFieldHandler("optimize.mods.smoothboot",
+                new EditorCheckBox("settings.optimize.mods.smoothboot")
+        );
+        optimizeTab.add(new EditorPair("settings.optimize.mods.smoothboot.label", modSmoothBoot));
+
+        // C2ME (Concurrent Chunk Management Engine)
+        EditorFieldHandler modC2ME = new EditorFieldHandler("optimize.mods.c2me",
+                new EditorCheckBox("settings.optimize.mods.c2me")
+        );
+        optimizeTab.add(new EditorPair("settings.optimize.mods.c2me.label", modC2ME));
+
+        // Alternate Current
+        EditorFieldHandler modAlternateCurrent = new EditorFieldHandler("optimize.mods.alternatecurrent",
+                new EditorCheckBox("settings.optimize.mods.alternatecurrent")
+        );
+        optimizeTab.add(new EditorPair("settings.optimize.mods.alternatecurrent.label", modAlternateCurrent));
+
+        // Very Many Players (VMP)
+        EditorFieldHandler modVMP = new EditorFieldHandler("optimize.mods.vmp",
+                new EditorCheckBox("settings.optimize.mods.vmp")
+        );
+        optimizeTab.add(new EditorPair("settings.optimize.mods.vmp.label", modVMP));
+        optimizeTab.nextPane();
+
+        // JVM optimization info
+        LocalizableLabel jvmInfo = new LocalizableLabel("settings.optimize.jvm.info");
+        jvmInfo.setFont(jvmInfo.getFont().deriveFont(Font.ITALIC, LegacyLauncherFrame.getFontSize() * 0.85f));
+        optimizeTab.add(jvmInfo);
+        optimizeTab.nextPane();
+
+        add(optimizeTab);
+
         EditorPanelTab aboutTab = new EditorPanelTab("settings.tab.about");
         aboutTab.setSavingEnabled(false);
         about = new HTMLPage("about.html");

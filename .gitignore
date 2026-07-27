@@ -28,3 +28,18 @@ build
 
 /logs/*
 /lib/*
+
+# Windows reserved device names
+nul
+con
+prn
+aud
+aux
+com1
+com2
+lpt1
+lpt2
+
+# Local launcher configuration
+local.properties
+*.log

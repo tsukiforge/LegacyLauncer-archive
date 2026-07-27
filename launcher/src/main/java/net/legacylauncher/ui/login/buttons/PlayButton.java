@@ -13,6 +13,7 @@ import net.legacylauncher.ui.notice.Notice;
 import net.legacylauncher.ui.notice.NoticeManager;
 import net.legacylauncher.ui.notice.NoticeManagerListener;
 import net.legacylauncher.ui.notice.NoticePopup;
+import net.legacylauncher.ui.swing.RoundedButton;
 import net.legacylauncher.ui.swing.extended.BorderPanel;
 import net.legacylauncher.util.SwingUtil;
 import net.minecraft.launcher.updater.VersionSyncInfo;
@@ -26,7 +27,8 @@ public class PlayButton extends BorderPanel implements Blockable, LoginForm.Logi
     private PlayButton.PlayButtonState state;
     private final LoginForm loginForm;
 
-    private final LocalizableButton button, promotedNoticeButton;
+    private final RoundedButton button;
+    private final LocalizableButton promotedNoticeButton;
     private final NoticePopup promotedNoticePopup = new NoticePopup();
     private final LocalizableMenuItem
             hideNotice = new LocalizableMenuItem("notice.action.hide"),
@@ -74,7 +76,8 @@ public class PlayButton extends BorderPanel implements Blockable, LoginForm.Logi
 
     PlayButton(LoginForm lf) {
         loginForm = lf;
-        button = new LocalizableButton();
+        button = new RoundedButton(RoundedButton.AnimeColor.CYBER_GREEN);
+        button.setArc(20);
         button.addActionListener(e -> {
             switch (state) {
                 case CANCEL:

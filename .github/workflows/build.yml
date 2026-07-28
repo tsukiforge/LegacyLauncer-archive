@@ -1,4 +1,4 @@
-name: Build Legacy Launcher
+name: Build Legacy Launcer Archive
 
 on:
   push:
@@ -8,135 +8,280 @@ on:
     branches: [ master, main ]
   workflow_dispatch:
     inputs:
-      release:
-        description: 'Create a release artifact?'
-        required: false
-        default: false
-        type: boolean
+      release_type:
+        description: 'Type of release to create'
+        required: true
+        default: 'draft'
+        type: choice
+        options:
+          - draft
+          - prerelease
+          - release
+
+env:
+  SHORT_BRAND: archive
+  JAVA_VERSION: '21'
 
 jobs:
+  # ─── BUILD JOB ────────────────────────────────────────
   build:
     name: Build Launcher JAR
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract-version.outputs.version }}
+      is_tag_push: ${{ steps.check-tag.outputs.is_tag }}
+      commit_sha: ${{ github.sha }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # fetch all history for git describe
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
+          java-version: ${{ env.JAVA_VERSION }}
           distribution: 'temurin'
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Cache Gradle packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle/wrapper/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
-
       - name: Build with Gradle
-        env:
-          SHORT_BRAND: archive
         run: ./gradlew :launcher:build --no-daemon -x test
+        env:
+          SHORT_BRAND: ${{ env.SHORT_BRAND }}
 
       - name: Run tests
         run: ./gradlew :launcher:test --no-daemon
+        env:
+          SHORT_BRAND: ${{ env.SHORT_BRAND }}
+
+      - name: Extract version from git
+        id: extract-version
+        run: |
+          VERSION=$(git describe --tags --always --match "[0-9].*" 2>/dev/null || echo "0.0.0")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Detected version: $VERSION"
+
+      - name: Check if tag push
+        id: check-tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "is_tag=true" >> $GITHUB_OUTPUT
+            echo "Tag push detected: ${{ github.ref }}"
+          else
+            echo "is_tag=false" >> $GITHUB_OUTPUT
+            echo "Branch push detected: ${{ github.ref }}"
+          fi
 
       - name: List build outputs
         run: ls -la launcher/build/libs/
 
-      - name: Upload build artifact
+      - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
           name: LegacyLauncer-Archive-JAR
-          path: |
-            launcher/build/libs/*.jar
+          path: launcher/build/libs/*.jar
           retention-days: 7
           if-no-files-found: error
 
-  # Optional: Build platform-specific packages
+  # ─── PACKAGE JOB ──────────────────────────────────────
   package:
     name: Package Installers
     needs: build
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        os: [ ubuntu-latest ]
-        # Add windows-latest if you have Windows packaging scripts
-        # os: [ ubuntu-latest, windows-latest ]
+        pkg: [ portable ]
       fail-fast: false
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
+          java-version: ${{ env.JAVA_VERSION }}
           distribution: 'temurin'
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Download build artifact
+      - name: Download JAR artifact
         uses: actions/download-artifact@v4
         with:
           name: LegacyLauncer-Archive-JAR
           path: launcher/build/libs/
 
-      - name: Build packages (Linux/macOS)
-        if: runner.os != 'Windows'
+      - name: Build portable package
         run: |
           ./gradlew :packages:portable:build --no-daemon || true
-          echo "Package build completed (may have warnings)"
+          echo "Portable build completed"
+
+      - name: Prepare Inno Setup files
+        run: |
+          ./gradlew :packages:installer:prepareInstaller --no-daemon || true
+          echo "Inno Setup preparation completed"
+        env:
+          SHORT_BRAND: ${{ env.SHORT_BRAND }}
+
+      - name: Build Inno Setup installer (Docker)
+        if: always()
+        run: |
+          echo "Building Inno Setup installer via Docker..."
+          INNO_DIR="packages/installer/build/innosetup/${{ env.SHORT_BRAND }}"
+          if [ -d "$INNO_DIR" ]; then
+            ls -la "$INNO_DIR"
+            docker run --rm \
+              -v "$(pwd)/$INNO_DIR:/workspace" \
+              -w /workspace \
+              amake/innosetup:latest \
+              main.iss 2>&1 || echo "Inno Setup Docker build exited with warnings (may need Windows)"
+            echo "Looking for installer output..."
+            find "$INNO_DIR" -name "*.exe" -o -name "*.iss" 2>/dev/null | head -10
+          else
+            echo "Inno Setup directory not found at $INNO_DIR"
+          fi
 
       - name: List all packages
         run: |
-          find . -name "*.zip" -o -name "*.tar.gz" -o -name "*.exe" -o -name "*.dmg" | head -20
+          find . -name "*.zip" -o -name "*.tar.gz" -o -name "*.exe" -o -name "*.dmg" 2>/dev/null | head -20
 
       - name: Upload package artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: LegacyLauncer-Archive-Packages-${{ runner.os }}
+          name: LegacyLauncer-Archive-Packages
           path: |
             packages/*/build/distributions/*
             packages/*/build/libs/*
+            packages/installer/build/innosetup/**/*.exe
             !packages/*/build/libs/*-sources.jar
           retention-days: 7
           if-no-files-found: ignore
 
-  # Automated release on tag push
+  # ─── RELEASE JOB ──────────────────────────────────────
   release:
-    name: Create GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
+    name: Auto Release
+    if: |
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/master' ||
+       startsWith(github.ref, 'refs/tags/v') ||
+       github.event_name == 'workflow_dispatch')
     needs: [ build, package ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Display structure of downloaded files
-        run: ls -laR artifacts/
+      - name: Display artifacts
+        run: |
+          echo "=== Artifacts ==="
+          ls -laR artifacts/
+          echo "=== Version ==="
+          echo "Version: ${{ needs.build.outputs.version }}"
+          echo "Is tag push: ${{ needs.build.outputs.is_tag_push }}"
 
-      - name: Create Release
+      - name: Determine tag name
+        id: tag-name
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # Use the pushed tag name
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+            echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+            echo "Using pushed tag: $TAG_NAME"
+          else
+            # Auto-create tag from version
+            VERSION="${{ needs.build.outputs.version }}"
+            if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+              TAG_NAME="v${VERSION}"
+              echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+              echo "Auto-creating tag: $TAG_NAME"
+            else
+              TAG_NAME="build-${GITHUB_SHA:0:8}"
+              echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+              echo "Fallback tag: $TAG_NAME"
+            fi
+          fi
+
+      - name: Create Git tag (if not a tag push)
+        id: create-tag
+        if: needs.build.outputs.is_tag_push != 'true'
+        run: |
+          TAG_NAME="${{ steps.tag-name.outputs.tag_name }}"
+          if ! git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git tag "$TAG_NAME" "${{ needs.build.outputs.commit_sha }}"
+            git push origin "$TAG_NAME"
+            echo "Created and pushed tag: $TAG_NAME"
+          else
+            echo "Tag $TAG_NAME already exists, skipping creation"
+          fi
+
+      - name: Determine release type
+        id: release-type
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "draft=false" >> $GITHUB_OUTPUT
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+            echo "Type: Full Release (tag push)"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            RTYPE="${{ github.event.inputs.release_type }}"
+            if [[ "$RTYPE" == "draft" ]]; then
+              echo "draft=true" >> $GITHUB_OUTPUT
+              echo "prerelease=false" >> $GITHUB_OUTPUT
+            elif [[ "$RTYPE" == "prerelease" ]]; then
+              echo "draft=false" >> $GITHUB_OUTPUT
+              echo "prerelease=true" >> $GITHUB_OUTPUT
+            else
+              echo "draft=false" >> $GITHUB_OUTPUT
+              echo "prerelease=false" >> $GITHUB_OUTPUT
+            fi
+            echo "Type: ${RTYPE:-release} (manual)"
+          else
+            echo "draft=true" >> $GITHUB_OUTPUT
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+            echo "Type: Draft Release (master push)"
+          fi
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.tag-name.outputs.tag_name }}
+          name: "Legacy Launcer Archive ${{ steps.tag-name.outputs.tag_name }}"
+          body: |
+            ## 🚀 Legacy Launcer Archive ${{ steps.tag-name.outputs.tag_name }}
+
+            ### ✨ Fitur
+            - 🎨 Anime Theme UI dengan background kustom
+            - ⚡ Auto-Optimize Low-End PC
+            - 🔔 Update Checker dengan bell icon
+            - 🖥️ Glassmorphism & Rounded UI
+            - 🌐 Multi-language (EN/RU)
+
+            ### 📦 Download
+            - **JAR**: File launcher utama
+            - **Portable**: Versi portabel (zip)
+            - **Installer**: Setup installer (Windows)
+
+            ---
+            *Auto-generated by GitHub Actions*
           files: |
             artifacts/**/*
+          draft: ${{ steps.release-type.outputs.draft }}
+          prerelease: ${{ steps.release-type.outputs.prerelease }}
           generate_release_notes: true
-          draft: false
-          prerelease: false

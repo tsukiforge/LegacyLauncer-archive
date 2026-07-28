@@ -253,9 +253,9 @@ jobs:
             fi
             echo "Type: ${RTYPE:-release} (manual)"
           else
-            echo "draft=true" >> $GITHUB_OUTPUT
+            echo "draft=false" >> $GITHUB_OUTPUT
             echo "prerelease=false" >> $GITHUB_OUTPUT
-            echo "Type: Draft Release (master push)"
+            echo "Type: Full Release (master push)"
           fi
 
       - name: Organize release files
@@ -270,8 +270,21 @@ jobs:
           # ZIP packages
           find artifacts/ -name "*.zip" -exec cp {} release-assets/ \; 2>/dev/null || true
           
-          # EXE installers
-          find artifacts/ -name "*.exe" -exec cp {} release-assets/ \; 2>/dev/null || true
+          # EXE installers - exclude Java runtime binaries
+          find artifacts/ -name "*.exe" \
+            -not -name "java.exe" \
+            -not -name "javaw.exe" \
+            -not -name "jabswitch.exe" \
+            -not -name "jaccess*.exe" \
+            -not -name "jfr.exe" \
+            -not -name "jrunscript.exe" \
+            -not -name "jwebserver.exe" \
+            -not -name "keytool.exe" \
+            -not -name "kinit.exe" \
+            -not -name "klist.exe" \
+            -not -name "ktab.exe" \
+            -not -name "rmiregistry.exe" \
+            -exec cp {} release-assets/ \; 2>/dev/null || true
           
           # DMG for macOS
           find artifacts/ -name "*.dmg" -exec cp {} release-assets/ \; 2>/dev/null || true

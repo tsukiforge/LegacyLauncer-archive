@@ -1,20 +1,20 @@
--- Portable Legacy Launcher --
+-- Portable Legacy Launcer Archive --
 
-Legacy Launcher is a free alternative launcher for Minecraft.
-This is an example on how you can to create portable Minecraft installations.
+Legacy Launcer Archive is a fork of Legacy Launcher with Anime Theme UI, Auto-Optimize, and Update Checker.
+This is an example on how you can create portable Minecraft installations.
 
 How do I start it? LL.exe
-How do I use it? https://docs.llaun.ch/en/launcher/portable
+Fork repository: https://github.com/tsukiforge/LegacyLauncer-archive
 
--- Портативная сборка Legacy Launcher --
+-- Портативная сборка Legacy Launcer Archive --
 
-Legacy Launcher – свободный и бесплатный лаунчер для Minecraft.
+Legacy Launcer Archive – форк Legacy Launcher с аниме-темой, авто-оптимизацией и проверкой обновлений.
 Данная сборка содержит минимальный набор файлов для создания портативной сборки.
 
 Как запустить? LL.exe
-Как использовать? https://docs.legacylauncher.ru/launcher/portable
+Репозиторий: https://github.com/tsukiforge/LegacyLauncer-archive
 
 --
 
-Legacy Launcher @version@
+Legacy Launcer Archive @version@
 @date@

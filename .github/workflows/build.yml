@@ -119,12 +119,12 @@ jobs:
 
       - name: Build portable package
         run: |
-          ./gradlew :packages:portable:build --no-daemon || true
+          ./gradlew :packages:portable:build --no-daemon
           echo "Portable build completed"
 
       - name: Prepare Inno Setup files
         run: |
-          ./gradlew :packages:installer:prepareInstaller --no-daemon || true
+          ./gradlew :packages:installer:prepareInstaller --no-daemon
           echo "Inno Setup preparation completed"
         env:
           SHORT_BRAND: ${{ env.SHORT_BRAND }}
@@ -141,25 +141,6 @@ jobs:
             packages/*/build/distributions/*
             packages/*/build/libs/*
             !packages/*/build/libs/*-sources.jar
-          retention-days: 7
-          if-no-files-found: ignore
-
-      - name: Upload prepared Inno Setup source (for Windows builder)
-        run: |
-          INNO_DIR="packages/installer/build/innosetup/${{ env.SHORT_BRAND }}"
-          if [ -d "$INNO_DIR" ]; then
-            echo "Uploading Inno Setup source from $INNO_DIR"
-            ls -la "$INNO_DIR"
-          else
-            echo "Inno Setup directory not found at $INNO_DIR - creating placeholder"
-            mkdir -p "$INNO_DIR"
-          fi
-
-      - name: Upload prepared innosetup directory
-        uses: actions/upload-artifact@v4
-        with:
-          name: LegacyLauncer-Archive-InnoSetup
-          path: packages/installer/build/innosetup/archive/
           retention-days: 7
           if-no-files-found: ignore
 
@@ -190,67 +171,92 @@ jobs:
           name: LegacyLauncer-Archive-JAR
           path: launcher/build/libs/
 
-      - name: Download prepared Inno Setup source
-        uses: actions/download-artifact@v4
-        with:
-          name: LegacyLauncer-Archive-InnoSetup
-          path: packages/installer/build/innosetup/archive/
-
-      - name: Verify Inno Setup files
+      - name: Build portable & prepare Inno Setup files
         shell: powershell
         run: |
-          Write-Host "=== Inno Setup Directory ==="
-          Get-ChildItem -Path packages/installer/build/innosetup/archive/ -Recurse | Select-Object FullName | Format-Table
-          Write-Host "=== main.iss exists? ==="
-          if (Test-Path "packages/installer/build/innosetup/archive/main.iss") {
-            Write-Host "✅ main.iss found"
-          } else {
-            Write-Host "❌ main.iss NOT found"
-            Get-ChildItem -Path packages/installer/build/innosetup/ -Recurse -Filter "*.iss" | Select-Object FullName
+          Write-Host "=== Building portable package ==="
+          .\gradlew :packages:portable:build --no-daemon
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::Portable build failed"; exit 1 }
+          Write-Host "✅ Portable build completed"
+          
+          Write-Host "=== Preparing Inno Setup files ==="
+          .\gradlew :packages:installer:prepareInstaller --no-daemon
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::prepareInstaller failed"; exit 1 }
+          Write-Host "✅ Inno Setup preparation completed"
+        env:
+          SHORT_BRAND: ${{ env.SHORT_BRAND }}
+
+      - name: Verify Inno Setup files exist
+        shell: powershell
+        run: |
+          Write-Host "=== Checking Inno Setup files ==="
+          $issDir = "packages/installer/build/innosetup/archive"
+          if (-not (Test-Path "$issDir/main.iss")) {
+            Write-Host "::error::main.iss NOT found in $issDir"
+            Get-ChildItem -Path packages/installer/build/innosetup -Recurse -Filter "*.iss" | Select-Object FullName
+            exit 1
           }
+          Write-Host "✅ main.iss found at $issDir/main.iss"
+          Get-ChildItem -Path "$issDir" | Select-Object Name | Format-Table
 
       - name: Install Inno Setup
         shell: powershell
         run: |
           Write-Host "Installing Inno Setup via Chocolatey..."
-          choco install innosetup --no-progress --confirm 2>&1
-          Write-Host "=== ISCC Path ==="
-          Get-Command iscc.exe -ErrorAction SilentlyContinue | Select-Object Source
-          if (-not (Get-Command iscc.exe -ErrorAction SilentlyContinue)) {
-            # Fallback: find ISCC manually
-            $isccPaths = Get-ChildItem -Path "C:\Program Files (x86)" -Recurse -Filter "ISCC.exe" -ErrorAction SilentlyContinue
-            if ($isccPaths) {
-              Write-Host "ISCC found at: $($isccPaths[0].FullName)"
+          choco install innosetup --no-progress -y 2>&1
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::choco install failed"; exit 1 }
+          
+          Write-Host "=== Finding ISCC ==="
+          $iscc = Get-Command iscc.exe -ErrorAction SilentlyContinue
+          if ($iscc) {
+            Write-Host "✅ ISCC at: $($iscc.Source)"
+          } else {
+            $isccFile = Get-ChildItem -Path "${env:ProgramFiles(x86)}" -Recurse -Filter "ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($isccFile) {
+              Write-Host "✅ ISCC found at: $($isccFile.FullName)"
             } else {
-              Write-Host "⚠️ ISCC not found after choco install, trying manual download..."
+              Write-Host "::error::ISCC not found after choco install!"
+              exit 1
             }
           }
 
       - name: Compile installer with ISCC
         shell: powershell
         run: |
-          $issPath = "packages/installer/build/innosetup/archive/main.iss"
-          $outputDir = "packages/installer/build/innosetup/archive/"
+          $issDir = "packages/installer/build/innosetup/archive"
+          $issPath = "$issDir/main.iss"
           
           Write-Host "Compiling: $issPath"
-          Write-Host "Output dir: $outputDir"
           
-          if (Get-Command iscc.exe -ErrorAction SilentlyContinue) {
-            & iscc.exe "$issPath"
-          } else {
-            # Search for ISCC
-            $iscc = Get-ChildItem -Path "C:\Program Files (x86)" -Recurse -Filter "ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($iscc) {
-              Write-Host "Found ISCC at: $($iscc.FullName)"
-              & $iscc.FullName "$issPath"
-            } else {
-              Write-Host "::error::ISCC not found! Inno Setup may not be installed correctly."
+          # Find ISCC
+          $iscc = Get-Command iscc.exe -ErrorAction SilentlyContinue
+          if (-not $iscc) {
+            $iscc = Get-ChildItem -Path "${env:ProgramFiles(x86)}" -Recurse -Filter "ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $iscc) {
+              Write-Host "::error::ISCC not found!"
               exit 1
             }
           }
           
-          Write-Host "=== Installer Output ==="
-          Get-ChildItem -Path "$outputDir" -Filter "*.exe" | Select-Object Name, Length
+          # Run ISCC and capture output
+          & $iscc.Source "$issPath" 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::ISCC compilation failed with exit code $LASTEXITCODE"
+            exit 1
+          }
+          
+          Write-Host "=== Output EXE files ==="
+          Get-ChildItem -Path "$issDir" -Filter "*.exe" | Select-Object Name, Length | Format-Table
+          
+          # Also check subdirectories (ISCC might put output elsewhere)
+          $exeFiles = @()
+          $exeFiles += Get-ChildItem -Path "$issDir" -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue
+          if ($exeFiles.Count -eq 0) {
+            Write-Host "::warning::No EXE files found in $issDir or subdirectories"
+          } else {
+            Write-Host "All EXE files found:"
+            $exeFiles | Select-Object FullName, Length | Format-Table
+          }
 
       - name: Upload installer EXE
         uses: actions/upload-artifact@v4

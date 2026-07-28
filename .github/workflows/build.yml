@@ -129,24 +129,6 @@ jobs:
         env:
           SHORT_BRAND: ${{ env.SHORT_BRAND }}
 
-      - name: Build Inno Setup installer (Docker)
-        if: always()
-        run: |
-          echo "Building Inno Setup installer via Docker..."
-          INNO_DIR="packages/installer/build/innosetup/${{ env.SHORT_BRAND }}"
-          if [ -d "$INNO_DIR" ]; then
-            ls -la "$INNO_DIR"
-            docker run --rm \
-              -v "$(pwd)/$INNO_DIR:/workspace" \
-              -w /workspace \
-              amake/innosetup:latest \
-              main.iss 2>&1 || echo "Inno Setup Docker build exited with warnings (may need Windows)"
-            echo "Looking for installer output..."
-            find "$INNO_DIR" -name "*.exe" -o -name "*.iss" 2>/dev/null | head -10
-          else
-            echo "Inno Setup directory not found at $INNO_DIR"
-          fi
-
       - name: List all packages
         run: |
           find . -name "*.zip" -o -name "*.tar.gz" -o -name "*.exe" -o -name "*.dmg" 2>/dev/null | head -20
@@ -158,10 +140,125 @@ jobs:
           path: |
             packages/*/build/distributions/*
             packages/*/build/libs/*
-            packages/installer/build/innosetup/**/*.exe
             !packages/*/build/libs/*-sources.jar
           retention-days: 7
           if-no-files-found: ignore
+
+      - name: Upload prepared Inno Setup source (for Windows builder)
+        run: |
+          INNO_DIR="packages/installer/build/innosetup/${{ env.SHORT_BRAND }}"
+          if [ -d "$INNO_DIR" ]; then
+            echo "Uploading Inno Setup source from $INNO_DIR"
+            ls -la "$INNO_DIR"
+          else
+            echo "Inno Setup directory not found at $INNO_DIR - creating placeholder"
+            mkdir -p "$INNO_DIR"
+          fi
+
+      - name: Upload prepared innosetup directory
+        uses: actions/upload-artifact@v4
+        with:
+          name: LegacyLauncer-Archive-InnoSetup
+          path: packages/installer/build/innosetup/archive/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ─── INSTALLER JOB (Windows) ──────────────────────────
+  installer:
+    name: Build Windows Installer (EXE)
+    needs: [ build, package ]
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: LegacyLauncer-Archive-JAR
+          path: launcher/build/libs/
+
+      - name: Download prepared Inno Setup source
+        uses: actions/download-artifact@v4
+        with:
+          name: LegacyLauncer-Archive-InnoSetup
+          path: packages/installer/build/innosetup/archive/
+
+      - name: Verify Inno Setup files
+        shell: powershell
+        run: |
+          Write-Host "=== Inno Setup Directory ==="
+          Get-ChildItem -Path packages/installer/build/innosetup/archive/ -Recurse | Select-Object FullName | Format-Table
+          Write-Host "=== main.iss exists? ==="
+          if (Test-Path "packages/installer/build/innosetup/archive/main.iss") {
+            Write-Host "✅ main.iss found"
+          } else {
+            Write-Host "❌ main.iss NOT found"
+            Get-ChildItem -Path packages/installer/build/innosetup/ -Recurse -Filter "*.iss" | Select-Object FullName
+          }
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: |
+          Write-Host "Installing Inno Setup via Chocolatey..."
+          choco install innosetup --no-progress --confirm 2>&1
+          Write-Host "=== ISCC Path ==="
+          Get-Command iscc.exe -ErrorAction SilentlyContinue | Select-Object Source
+          if (-not (Get-Command iscc.exe -ErrorAction SilentlyContinue)) {
+            # Fallback: find ISCC manually
+            $isccPaths = Get-ChildItem -Path "C:\Program Files (x86)" -Recurse -Filter "ISCC.exe" -ErrorAction SilentlyContinue
+            if ($isccPaths) {
+              Write-Host "ISCC found at: $($isccPaths[0].FullName)"
+            } else {
+              Write-Host "⚠️ ISCC not found after choco install, trying manual download..."
+            }
+          }
+
+      - name: Compile installer with ISCC
+        shell: powershell
+        run: |
+          $issPath = "packages/installer/build/innosetup/archive/main.iss"
+          $outputDir = "packages/installer/build/innosetup/archive/"
+          
+          Write-Host "Compiling: $issPath"
+          Write-Host "Output dir: $outputDir"
+          
+          if (Get-Command iscc.exe -ErrorAction SilentlyContinue) {
+            & iscc.exe "$issPath"
+          } else {
+            # Search for ISCC
+            $iscc = Get-ChildItem -Path "C:\Program Files (x86)" -Recurse -Filter "ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($iscc) {
+              Write-Host "Found ISCC at: $($iscc.FullName)"
+              & $iscc.FullName "$issPath"
+            } else {
+              Write-Host "::error::ISCC not found! Inno Setup may not be installed correctly."
+              exit 1
+            }
+          }
+          
+          Write-Host "=== Installer Output ==="
+          Get-ChildItem -Path "$outputDir" -Filter "*.exe" | Select-Object Name, Length
+
+      - name: Upload installer EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: LegacyLauncer-Archive-Installer
+          path: packages/installer/build/innosetup/archive/*.exe
+          retention-days: 7
+          if-no-files-found: error
 
   # ─── RELEASE JOB ──────────────────────────────────────
   release:
@@ -171,7 +268,7 @@ jobs:
       (github.ref == 'refs/heads/master' ||
        startsWith(github.ref, 'refs/tags/v') ||
        github.event_name == 'workflow_dispatch')
-    needs: [ build, package ]
+    needs: [ build, package, installer ]
     runs-on: ubuntu-latest
     permissions:
       contents: write

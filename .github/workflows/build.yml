@@ -228,18 +228,21 @@ jobs:
           
           Write-Host "Compiling: $issPath"
           
-          # Find ISCC
-          $iscc = Get-Command iscc.exe -ErrorAction SilentlyContinue
-          if (-not $iscc) {
-            $iscc = Get-ChildItem -Path "${env:ProgramFiles(x86)}" -Recurse -Filter "ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-            if (-not $iscc) {
-              Write-Host "::error::ISCC not found!"
-              exit 1
-            }
+          # Find ISCC path (works for both Get-Command and Get-ChildItem)
+          $isccPath = (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source
+          if (-not $isccPath) {
+            $isccFile = Get-ChildItem -Path "${env:ProgramFiles(x86)}" -Recurse -Filter "ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            $isccPath = $isccFile.FullName
+          }
+          if (-not $isccPath) {
+            Write-Host "::error::ISCC not found!"
+            exit 1
           }
           
+          Write-Host "Using ISCC: $isccPath"
+          
           # Run ISCC and capture output
-          & $iscc.Source "$issPath" 2>&1
+          & $isccPath "$issPath" 2>&1
           if ($LASTEXITCODE -ne 0) {
             Write-Host "::error::ISCC compilation failed with exit code $LASTEXITCODE"
             exit 1
@@ -249,10 +252,9 @@ jobs:
           Get-ChildItem -Path "$issDir" -Filter "*.exe" | Select-Object Name, Length | Format-Table
           
           # Also check subdirectories (ISCC might put output elsewhere)
-          $exeFiles = @()
-          $exeFiles += Get-ChildItem -Path "$issDir" -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue
+          $exeFiles = Get-ChildItem -Path "$issDir" -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue
           if ($exeFiles.Count -eq 0) {
-            Write-Host "::warning::No EXE files found in $issDir or subdirectories"
+            Write-Host "::warning::No EXE files found in $issDir or any subdirectory"
           } else {
             Write-Host "All EXE files found:"
             $exeFiles | Select-Object FullName, Length | Format-Table

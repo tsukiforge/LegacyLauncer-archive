@@ -207,9 +207,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Host "::error::choco install failed"; exit 1 }
           
           Write-Host "=== Finding ISCC ==="
-          $iscc = Get-Command iscc.exe -ErrorAction SilentlyContinue
-          if ($iscc) {
-            Write-Host "✅ ISCC at: $($iscc.Source)"
+          $isccPath = (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source
+          if ($isccPath) {
+            Write-Host "✅ ISCC at: $isccPath"
           } else {
             $isccFile = Get-ChildItem -Path "${env:ProgramFiles(x86)}" -Recurse -Filter "ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($isccFile) {
@@ -241,30 +241,66 @@ jobs:
           
           Write-Host "Using ISCC: $isccPath"
           
-          # Run ISCC and capture output
-          & $isccPath "$issPath" 2>&1
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "::error::ISCC compilation failed with exit code $LASTEXITCODE"
+          # List files before compilation for debugging
+          Write-Host "=== Files before ISCC ==="
+          Get-ChildItem -Path "$issDir" -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
+          
+          # Run ISCC with explicit output directory (/O switch)
+          # ISCC /O<path> sets output directory; we set it to $issDir
+          $outputDir = Join-Path $issDir "Output"
+          & $isccPath "$issPath" "/O$outputDir"
+          $exitCode = $LASTEXITCODE
+          
+          Write-Host "ISCC exit code: $exitCode"
+          
+          if ($exitCode -ne 0) {
+            Write-Host "::error::ISCC compilation failed with exit code $exitCode"
             exit 1
           }
           
-          Write-Host "=== Output EXE files ==="
-          Get-ChildItem -Path "$issDir" -Filter "*.exe" | Select-Object Name, Length | Format-Table
+          # Search for generated EXE in multiple locations
+          Write-Host "=== Searching for generated EXE ==="
+          $searchPaths = @(
+            $issDir,
+            $outputDir,
+            (Get-Location).Path,
+            "$env:TEMP",
+            [System.IO.Path]::Combine($env:USERPROFILE, "Documents", "Inno Setup Output")
+          )
           
-          # Also check subdirectories (ISCC might put output elsewhere)
-          $exeFiles = Get-ChildItem -Path "$issDir" -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue
-          if ($exeFiles.Count -eq 0) {
-            Write-Host "::warning::No EXE files found in $issDir or any subdirectory"
-          } else {
-            Write-Host "All EXE files found:"
-            $exeFiles | Select-Object FullName, Length | Format-Table
+          $allExes = @()
+          foreach ($searchPath in $searchPaths) {
+            $found = Get-ChildItem -Path $searchPath -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*Installer*" -or $_.Name -like "*Launcher*" }
+            if ($found) {
+              Write-Host "Found EXE in $searchPath:"
+              $found | Select-Object FullName, Length | Format-Table -AutoSize
+              $allExes += $found
+            }
           }
+          
+          if ($allExes.Count -eq 0) {
+            Write-Host "::error::No installer EXE found anywhere!"
+            Write-Host "Searching ALL .exe files in workspace..."
+            Get-ChildItem -Path (Get-Location).Path -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object FullName, Length | Format-Table -AutoSize
+            exit 1
+          }
+          
+          # Copy EXE to expected upload location
+          $targetDir = "$issDir"
+          foreach ($exe in $allExes) {
+            $destPath = Join-Path $targetDir $exe.Name
+            Copy-Item -Path $exe.FullName -Destination $destPath -Force
+            Write-Host "Copied: $($exe.FullName) -> $destPath"
+          }
+          
+          Write-Host "=== Final EXE files in $issDir ==="
+          Get-ChildItem -Path "$issDir" -Filter "*.exe" -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
 
       - name: Upload installer EXE
         uses: actions/upload-artifact@v4
         with:
           name: LegacyLauncer-Archive-Installer
-          path: packages/installer/build/innosetup/archive/*.exe
+          path: packages/installer/build/innosetup/archive/**/*.exe
           retention-days: 7
           if-no-files-found: error
 

@@ -1,9 +1,13 @@
 name: Build Legacy Launcer Archive
 
+# NOTE: NO `tags: [ 'v*' ]` trigger on purpose!
+# The release step below creates its own git tags (e.g. v1.170.0-build.12).
+# A tag trigger would re-run this workflow on every self-created tag and
+# (with `git describe`) compound old tag fragments forever:
+#   v1.170.0-6-gd49b2ce2-6-g0cdc6b35
 on:
   push:
     branches: [ master, main ]
-    tags: [ 'v*' ]
   workflow_dispatch:
 
 env:
@@ -12,8 +16,9 @@ env:
 
 jobs:
   build:
-    name: Build Launcher
-    runs-on: ubuntu-latest
+    name: Build Launcher (JAR + Installer EXE)
+    runs-on: windows-latest
+    timeout-minutes: 60
     permissions:
       contents: write
 
@@ -32,17 +37,104 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Build JAR
+      - name: Build launcher JAR
+        shell: bash
         run: ./gradlew :launcher:build --no-daemon -x test
         env:
           SHORT_BRAND: ${{ env.SHORT_BRAND }}
 
+      # prepareInstaller downloads the JREs (x64 + arm64), copies LL.exe and
+      # launcher files, and writes the token-replaced main.iss. No `|| true`:
+      # if it fails, the whole run fails loudly so we can see the real error.
+      - name: Prepare Inno Setup sources
+        shell: bash
+        run: ./gradlew :packages:installer:prepareInstaller --no-daemon
+        env:
+          SHORT_BRAND: ${{ env.SHORT_BRAND }}
+
+      - name: Verify Inno Setup sources
+        shell: pwsh
+        run: |
+          $issDir = "packages/installer/build/innosetup/$env:SHORT_BRAND"
+          Write-Host "::group::Contents of $issDir"
+          if (Test-Path $issDir) {
+            Get-ChildItem -Path $issDir -Recurse -File | ForEach-Object { Write-Host $_.FullName }
+          } else {
+            Write-Host "::error::$issDir does not exist"
+            exit 1
+          }
+          Write-Host "::endgroup::"
+          if (-not (Test-Path (Join-Path $issDir "main.iss"))) {
+            Write-Host "::error::main.iss not found in $issDir"
+            exit 1
+          }
+          Write-Host "main.iss OK"
+          if (-not (Test-Path (Join-Path $issDir "files\common\LL.exe"))) {
+            Write-Host "::error::files\common\LL.exe not found in $issDir"
+            exit 1
+          }
+          Write-Host "LL.exe OK"
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      # ISCC output is forced to <innosetup>/Output via /O, which is the same
+      # directory the [Setup] OutputDir=Output directive resolves to. If the
+      # EXE is missing afterwards we exit 1 loudly (no silent release).
+      - name: Compile installer with ISCC
+        shell: pwsh
+        run: |
+          $issDir = "packages/installer/build/innosetup/$env:SHORT_BRAND"
+          $outputDir = Join-Path $issDir "Output"
+          Write-Host "OutputDir: $outputDir"
+
+          $isccPath = (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source
+          if (-not $isccPath) {
+            $isccFile = Get-ChildItem -Path "${env:ProgramFiles(x86)}" -Filter "ISCC.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            $isccPath = if ($isccFile) { $isccFile.FullName } else { $null }
+          }
+          if (-not $isccPath) {
+            Write-Host "::error::ISCC.exe not found"
+            exit 1
+          }
+          Write-Host "ISCC: $isccPath"
+
+          & $isccPath "/O$outputDir" "$issDir/main.iss"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::ISCC failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+
+          $exe = Get-ChildItem -Path $outputDir -Filter "*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) {
+            Write-Host "::error::No installer EXE produced in $outputDir"
+            Get-ChildItem -Path $issDir -Recurse -File | ForEach-Object { Write-Host $_.FullName }
+            exit 1
+          }
+          Write-Host "Installer EXE: $($exe.FullName) ($([math]::Round($exe.Length / 1MB, 1)) MB)"
+
+      # Fail loudly (not silently) if the EXE is missing, and keep it as a
+      # debuggable artifact even if the release step fails later.
+      - name: Upload installer EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-exe
+          path: packages/installer/build/innosetup/${{ env.SHORT_BRAND }}/Output/*.exe
+          if-no-files-found: error
+
+      # Version comes from launcher/gradle.properties (manual, stable) plus the
+      # monotonic run number. NEVER `git describe` — the tags this workflow
+      # creates would otherwise leak into the next tag. Format is always
+      # vX.Y.Z-build.N (no old tag fragments, ever).
       - name: Extract version
         id: version
+        shell: bash
         run: |
-          VERSION=$(git describe --tags --always --match "v[0-9]*" 2>/dev/null || echo "0.0.0")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
+          VERSION=$(grep '^version=' launcher/gradle.properties | cut -d= -f2 | tr -d '\r')
+          if [ -z "$VERSION" ]; then VERSION="0.0.0"; fi
+          TAG="v${VERSION}-build.${{ github.run_number }}"
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$TAG"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -62,12 +154,16 @@ jobs:
             - 🌐 Multi-language (EN/RU)
 
             ### 📦 Download
-            - **Launcher JAR**: File launcher utama
+            - **Installer EXE**: `LegacyLauncher_archive_Installer.exe` — installer Windows (Inno Setup), sudah termasuk JRE
+            - **Launcher JAR**: file launcher utama (dipakai update checker)
 
             ---
             *Auto-generated by GitHub Actions*
-          files: launcher/build/libs/*.jar
+          files: |
+            launcher/build/libs/*.jar
+            packages/installer/build/innosetup/${{ env.SHORT_BRAND }}/Output/*.exe
           draft: false
           prerelease: false
+          update_release: true
           generate_release_notes: true
-          fail_on_unmatched_files: false
+          fail_on_unmatched_files: true

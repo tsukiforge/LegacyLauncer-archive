@@ -24,6 +24,7 @@ DisableWelcomePage=no
 ExtraDiskSpaceRequired=536870912
 PrivilegesRequired=lowest
 OutputBaseFilename=LegacyLauncher_{#Branch}_Installer
+OutputDir=Output
 ;Compression=none
 Compression=lzma2/normal
 SetupIconFile=icons/icon.ico
